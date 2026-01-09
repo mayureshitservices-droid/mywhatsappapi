@@ -164,7 +164,8 @@ function whatsappFactoryFunction(clientId) {
     restartOnAuthFail: true,
     qrMaxRetries: 10, // keep it outside of the puppeteer object
     puppeteer: {
-      // executablePath: '/usr/bin/google-chrome-stable',
+      // executablePath: '/usr/bin/google-chrome-stable', // uses chrome
+      executablePath: '/usr/bin/chromium-browser',
       headless: true,
       args: [
         '--no-sandbox',

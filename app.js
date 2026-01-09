@@ -120,7 +120,7 @@ io.on("connection", (socket) => {
       // delete connected whatsapp number from the document and theauth files
       console.error('AUTHENTICATION FAILURE', msg);
     });
-    client.on('ready', async () => {
+    client.once('ready', async () => {
       console.log('qr side fired');
       // let checkIfAlreadyConnected = (await User.findOne({ _id: customerId }))?.connectedWhatsappNo;
       try {

@@ -361,35 +361,51 @@ async function initiateAllWhatsappClients() {
           console.log('WhatsApp is NOT connected and asking QR code');
         });
         
+        // webhook code
         client.on('message', async (msg) => {
           console.log('one message event is fired');
-          // Call webhook here
-          const { body, from, fromMe, id, to } = msg;
-          const connectedWhatsappNo = to.replace(/@c\.us$/, '');
-          const object = {
-            msgBody: body,
-            msgFrom: from.replace(/@c\.us$/, ''),
-            msgFromMe: fromMe,
-            msgId: id.id,
-          };
-          console.log(`on message event is fired: ${msg.body}`);
-          console.log(`server wa no is: ${connectedWhatsappNo}`);
-          const currentDoc = await User.findOne({ connectedWhatsappNo });
-          console.log(currentDoc);
-          if (currentDoc && currentDoc.webHookUrl !== 'nowebhook') {
-            const webhookURL = currentDoc.webHookUrl;
-            try {
-              console.log(webhookURL);
-              await axios.post(webhookURL, JSON.stringify(object));
-            } catch (error) {
-              console.log(error);
-              console.log(error.message);
+
+          try {
+            const { body, fromMe, id, to } = msg;
+
+            // ✅ Get contact safely
+            const contact = await msg.getContact();
+
+            // ✅ BEST PRACTICE: sender identifier
+            const senderNo = contact.number
+              ? contact.number          // real mobile number (if WhatsApp exposes it)
+              : msg.from;               // @lid or @c.us fallback
+
+            const connectedWhatsappNo = to.replace(/@c\.us$/, '');
+
+            const object = {
+              msgBody: body,
+              msgFrom: senderNo,        // 🔥 IMPORTANT: do NOT modify
+              msgFromMe: fromMe,
+              msgId: id.id,
+            };
+
+            console.log(`Message: ${body}`);
+            console.log(`Sender: ${senderNo}`);
+            console.log(`Server WA No: ${connectedWhatsappNo}`);
+
+            const currentDoc = await User.findOne({ connectedWhatsappNo });
+
+            if (currentDoc && currentDoc.webHookUrl !== 'nowebhook') {
+              try {
+                await axios.post(currentDoc.webHookUrl, object, {
+                  headers: { 'Content-Type': 'application/json' }
+                });
+              } catch (error) {
+                console.error('Webhook error:', error.message);
+              }
             }
-          } else {
-            return;
-            
+
+          } catch (error) {
+            console.error('Message handler error:', error.message);
           }
         });
+
 
         client.on('message_ack', async (msg, ack) => {
           // Handle message acknowledgment

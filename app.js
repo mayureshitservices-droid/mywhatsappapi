@@ -19,6 +19,7 @@ const axios = require('axios');
 dotenv.config();
 const sessionMap = new Map();
 const alreadyInitialized = new Map();
+const currentlyInitializing = new Set();
 
 /* 
 const msg = client.getMessageById(messageId);
@@ -61,8 +62,8 @@ app.set('view engine', 'ejs');
 // MONGODBURI = "mongodb+srv://mayurbusinesssolutions:ZOIy62RPFja8UAq1@sonisirproject.e53zrib.mongodb.net/whatsappAPI"
 mongoose.connect(process.env.MONGODBURI).then(e => {
   server.listen(PORT);
-  console.log('Mongodb connected and server listening on port ' + PORT);
-  initiateAllWhatsappClients ()
+  console.log(`[SERVER] Mongodb connected successfully. Listening on port ${PORT}`);
+  initiateAllWhatsappClients()
 })
   .catch(error => {
     console.log(error.message)
@@ -79,8 +80,9 @@ app.use(authRoutes);
 
 // socket io
 io.on("connection", (socket) => {
-  console.log('A new socket connection', socket.id);
+  console.log(`[SOCKET] New connection established. ID: ${socket.id}`);
   socket.on("generateQrCode", async (customerId) => {
+    console.log(`[SOCKET] Requesting QR code for CustomerID: ${customerId}`);
     const folderName = `session-${customerId}`
     // Construct the full path to the folder
     const folderPath = path.join(__dirname, '.wwebjs_auth', folderName);
@@ -112,16 +114,14 @@ io.on("connection", (socket) => {
     });
 
     client.on('authenticated', () => {
-      console.log('AUTHENTICATED');
+      console.log(`[WHATSAPP] Authenticated successfully for client ID: ${customerId}`);
     });
 
     client.on('auth_failure', msg => {
-      // Fired if session restore was unsuccessful
-      // delete connected whatsapp number from the document and theauth files
-      console.error('AUTHENTICATION FAILURE', msg);
+      console.error(`[WHATSAPP] Authentication failure for client ID: ${customerId}. Reason: ${msg}`);
     });
     client.once('ready', async () => {
-      console.log('qr side fired');
+      console.log(`[WHATSAPP] Client "${customerId}" is READY`);
       // let checkIfAlreadyConnected = (await User.findOne({ _id: customerId }))?.connectedWhatsappNo;
       try {
         const user = await User.findById(customerId);
@@ -164,7 +164,7 @@ function whatsappFactoryFunction(clientId) {
     restartOnAuthFail: true,
     qrMaxRetries: 10, // keep it outside of the puppeteer object
     puppeteer: {
-      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium-browser',
+      ...(process.env.PUPPETEER_EXECUTABLE_PATH && { executablePath: process.env.PUPPETEER_EXECUTABLE_PATH }),
       headless: true,
       args: [
         '--no-sandbox',
@@ -173,16 +173,15 @@ function whatsappFactoryFunction(clientId) {
         '--disable-accelerated-2d-canvas',
         '--no-first-run',
         '--no-zygote',
-        '--disable-gpu',
-        '--single-process'
+        '--disable-gpu'
       ],
     },
     authStrategy: new LocalAuth({
       clientId: clientId,
     }),
-    // webVersion: '2.2413.51-beta',
     webVersionCache: {
-      type: 'none'
+      type: 'remote',
+      remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html'
   }
   });
   return client;  // Return the client instance, not the Client class
@@ -252,6 +251,7 @@ app.post('/deleteConnectedwhatsapp', requireAuth, async (req, res) => {
 
 app.post('/api/sendmessage', async (req, res) => {
   let { customerId, message, mobileno, messagetype } = req.body;
+  console.log(`[API] Received sendmessage request: Customer: ${customerId}, To: ${mobileno}, Type: ${messagetype}`);
   try {
     User.findById(customerId)
       .then(async (user) => {
@@ -274,6 +274,12 @@ app.post('/api/sendmessage', async (req, res) => {
 
               // const client = whatsappFactoryFunction(customerId);
               let sessionObj = sessionMap.get(customerId);
+              if (!sessionObj) {
+                return res.status(404).json({
+                  status: false,
+                  response: 'Session not found for this customer. Please log in to WhatsApp via the dashboard first.'
+                });
+              }
               const client = sessionObj.client;
               if (messagetype === 'text') {
                 await client.sendMessage(`${mobileno}@c.us`, message).then(async (response) => {
@@ -320,7 +326,7 @@ app.post('/api/sendmessage', async (req, res) => {
         }
       });
   } catch (error) {
-    console.log(error);
+    console.error(`[API ERROR] sendmessage failed: ${error.message}`, error);
     if (error.message.includes('Cast to ObjectId')) {
       return res.status(404).json({ error: 'Invalid Customer ID' });
     } else {
@@ -341,13 +347,16 @@ async function initiateAllWhatsappClients() {
     const users = await User.find({ connectedWhatsappNo: { $ne: '0' } });
 
     for (const user of users) {
-      const IsAlreadyInitialized = alreadyInitialized.get(user.connectedWhatsappNo);
-      if (user.connectedWhatsappNo !== '0' && IsAlreadyInitialized === undefined) {
-      
+      const waNo = user.connectedWhatsappNo;
+      const customerId = user._id.toString();
+
+      if (waNo !== '0' && !alreadyInitialized.has(waNo) && !currentlyInitializing.has(customerId)) {
+        console.log(`[STARTUP] Starting initialization for user: ${user.fullname} (${waNo})`);
+        
+        currentlyInitializing.add(customerId);
         const client = whatsappFactoryFunction(user._id);
-        const customerId = user._id.toString();
         client.on('ready', async () => {
-          console.log(`${user.fullname}'s WhatsApp is connected and in the ready state`);
+          console.log(`[STARTUP] WhatsApp client for user "${user.fullname}" (${user.email}) is READY`);
           sessionMap.set(customerId, {
             id: customerId,
             client: client,
@@ -357,7 +366,7 @@ async function initiateAllWhatsappClients() {
         });
         
         client.on('qr', async () => {
-          console.log('WhatsApp is NOT connected and asking QR code');
+          console.log(`[STARTUP] Client "${user.fullname}" NOT connected. QR code required.`);
         });
         
         // webhook code
@@ -441,7 +450,7 @@ async function initiateAllWhatsappClients() {
         });
 
         client.on('disconnected', async (reason) => {
-          console.log('Client was logged out', reason);
+          console.warn(`[WHATSAPP] Client "${user.fullname}" DISCONNECTED. Reason: ${reason}`);
 
           setTimeout(() => {
             client.destroy();
@@ -465,9 +474,14 @@ async function initiateAllWhatsappClients() {
           console.error('Authentication failure', msg);
         });
 
-        await client.initialize();
+        try {
+          await client.initialize();
+        } catch (initErr) {
+          console.error(`[ERROR] Failed to initialize client for ${user.fullname}:`, initErr.message);
+          currentlyInitializing.delete(customerId);
+        }
       }
-      }
+    }
     
   } catch (error) {
     console.error('Error initiating WhatsApp clients:', error.message);

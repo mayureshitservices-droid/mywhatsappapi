@@ -265,6 +265,9 @@
           </div>
           <button class="waves-effect waves-light btn red center">Submit</button>
         </form>
+        <div class="center" style="margin-top: 15px;">
+          <a href="/signup" class="blue-text text-lighten-3">Don't have an account? Sign Up</a>
+        </div>
       </div>
     </div>
   </div>
@@ -295,7 +298,7 @@
           passwordError.textContent = data.errors.password;
         }
         if (data.user) {
-          if (data.email === 'admin@mayursoft.com') {
+          if (data.email === 'admin@decisionmakers.in' || data.email === 'admin@mayursoft.com') {
                 location.assign('/adminpage');    
             } else {
             location.assign('/customerpage');

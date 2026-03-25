@@ -80,7 +80,9 @@ module.exports.login_post = async (req, res) => {
     const { email, password } = req.body;
     
     try {
+        console.log(`[AUTH] Login attempt for: ${email}`);
         const user = await User.login(email, password);
+        console.log(`[AUTH] Login success for user: ${email}`);
         const token = createToken(user._id);
         res.cookie('jwt', token, { httpOnly: true, maxAge: maxAge * 1000 });
         res.status(200).json({ user: user._id, email: user.email });

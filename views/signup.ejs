@@ -1,3 +1,77 @@
 <%- include('partials/header'); -%>
-<h1>sign up</h1>
+
+<div class="row" style="margin-top: 50px;">
+    <div class="col s12 m6 offset-m3">
+        <div class="card blue-grey darken-4 z-depth-5">
+            <div class="card-content white-text">
+                <span class="card-title center">Sign Up</span>
+                <form id="signupForm">
+                    <div class="input-field">
+                        <input name="fullname" id="fullname" type="text" class="validate white-text" required>
+                        <label for="fullname">Full Name</label>
+                        <div class="fullname-error red-text"></div>
+                    </div>
+                    <div class="input-field">
+                        <input name="email" id="email" type="email" class="validate white-text" required>
+                        <label for="email">Email</label>
+                        <div class="email-error red-text"></div>
+                    </div>
+                    <div class="input-field">
+                        <input name="password" id="password" type="password" class="validate white-text" required>
+                        <label for="password">Password</label>
+                        <div class="password-error red-text"></div>
+                    </div>
+                    <div class="center">
+                        <button class="waves-effect waves-light btn light-green">Sign Up</button>
+                    </div>
+                </form>
+            </div>
+            <div class="card-action center">
+                <a href="/home" class="light-green-text">Back to Home</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const signupForm = document.querySelector('#signupForm');
+    const emailError = document.querySelector('.email-error');
+    const passwordError = document.querySelector('.password-error');
+    const nameError = document.querySelector('.fullname-error');
+
+    signupForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        // reset errors
+        emailError.textContent = '';
+        passwordError.textContent = '';
+        nameError.textContent = '';
+
+        // get values
+        const fullname = signupForm.fullname.value;
+        const email = signupForm.email.value;
+        const password = signupForm.password.value;
+
+        try {
+            const res = await fetch('/signup', { 
+                method: 'POST', 
+                body: JSON.stringify({ fullname, email, password }),
+                headers: {'Content-Type': 'application/json'}
+            });
+            const data = await res.json();
+            if (data.errors) {
+                emailError.textContent = data.errors.email;
+                passwordError.textContent = data.errors.password;
+                nameError.textContent = data.errors.fullname;
+            }
+            if (data.user) {
+                alert('Sign up successful! Please log in.');
+                location.assign('/home');
+            }
+        } catch (err) {
+            console.log(err);
+        }
+    });
+</script>
+
 <%- include('partials/footer'); -%>

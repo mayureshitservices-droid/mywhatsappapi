@@ -189,6 +189,7 @@ function whatsappFactoryFunction(customerId) {
     puppeteer: {
       ...(process.env.PUPPETEER_EXECUTABLE_PATH && { executablePath: process.env.PUPPETEER_EXECUTABLE_PATH }),
       headless: true,
+      args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
@@ -199,7 +200,7 @@ function whatsappFactoryFunction(customerId) {
       ],
     },
     authStrategy: new LocalAuth({
-      clientId: clientId,
+      clientId: customerId,
     }),
     webVersionCache: {
       type: 'none'

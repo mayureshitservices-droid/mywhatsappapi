@@ -152,7 +152,14 @@ io.on("connection", (socket) => {
         console.log(error);
       }
     });
-    client.initialize();
+    console.log(`[WHATSAPP] Initializing client for ${customerId}...`);
+    try {
+      await client.initialize();
+      console.log(`[WHATSAPP] client.initialize() called for ${customerId}`);
+    } catch (err) {
+      console.error(`[WHATSAPP] Failed to initialize client for ${customerId}:`, err.message);
+      socket.emit('error', 'Failed to start WhatsApp. Please try again.');
+    }
   });
 });
 
@@ -167,12 +174,6 @@ function whatsappFactoryFunction(clientId) {
       ...(process.env.PUPPETEER_EXECUTABLE_PATH && { executablePath: process.env.PUPPETEER_EXECUTABLE_PATH }),
       headless: true,
       args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
-        '--no-first-run',
-        '--no-zygote',
         '--disable-gpu'
       ],
     },

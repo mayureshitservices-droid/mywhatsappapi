@@ -4,7 +4,7 @@ FROM node:18-slim
 RUN apt-get update \
     && apt-get install -y wget gnupg \
     && apt-get install -y chromium \
-    && apt-get install -y libatk-bridge2.0-0 libgtk-3-0 libasound2 libnss3 libxss1 libxtst6 \
+    && apt-get install -y libatk-bridge2.0-0 libgtk-3-0 libasound2 libnss3 libxss1 libxtst6 libgbm1 \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 

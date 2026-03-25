@@ -143,7 +143,8 @@ io.on("connection", (socket) => {
             id: customerId,
             client: client,
           });
-          initiateAllWhatsappClients()
+          alreadyInitialized.set(connectedWhatsappNo, 'initialized');
+          currentlyInitializing.delete(customerId);
         } else {
           console.log('Client is already connected');
           socket.emit('ClientIsAlreadyConnected');
@@ -359,15 +360,22 @@ async function initiateAllWhatsappClients() {
         
         currentlyInitializing.add(customerId);
         const client = whatsappFactoryFunction(user._id);
+        
+        client.on('authenticated', () => {
+          console.log(`[STARTUP] Authenticated successfully for user: ${user.fullname}`);
+        });
+
         client.on('ready', async () => {
           console.log(`[STARTUP] WhatsApp client for user "${user.fullname}" (${user.email}) is READY`);
+          const connectedWhatsappNo = client.info.wid.user;
+          alreadyInitialized.set(connectedWhatsappNo, 'initialized');
+          currentlyInitializing.delete(customerId);
+          
           sessionMap.set(customerId, {
             id: customerId,
             client: client,
           });
-          // CALLING IT AT STARTUP AND AT NEW CONNECTION EVENT BUT DO NOT WANT TO RUN ALL THE INTITIALIZED WHATSAPP TO INITIALIZE AT CONNECTION NEW WHATSAPP CONNECTION EVENT.
-          alreadyInitialized.set(user.connectedWhatsappNo, 'initialized');
-        });
+        });  // CALLING IT AT STARTUP AND AT NEW CONNECTION EVENT BUT DO NOT WANT TO RUN ALL THE INTITIALIZED WHATSAPP TO INITIALIZE AT CONNECTION NEW WHATSAPP CONNECTION EVENT.
         
         client.on('qr', async () => {
           console.log(`[STARTUP] Client "${user.fullname}" NOT connected. QR code required.`);

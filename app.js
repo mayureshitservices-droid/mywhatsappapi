@@ -20,8 +20,6 @@ dotenv.config();
 const sessionMap = new Map();
 const alreadyInitialized = new Map();
 const currentlyInitializing = new Set();
-const fs = require('fs');
-const path = require('path');
 
 /* 
 const msg = client.getMessageById(messageId);

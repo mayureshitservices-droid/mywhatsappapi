@@ -1,0 +1,18 @@
+version: '3'
+
+services:
+  whatsapp-api:
+    build: .
+    container_name: whatsapp-api
+    restart: always
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./.wwebjs_auth:/usr/src/app/.wwebjs_auth
+      - ./.wwebjs_cache:/usr/src/app/.wwebjs_cache
+    environment:
+      - PORT=8080
+      - NODE_ENV=production
+      - MONGODBURI=${MONGODBURI}
+      - JWT_SECRET=${JWT_SECRET}
+      - PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium

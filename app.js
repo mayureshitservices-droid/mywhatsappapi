@@ -20,6 +20,8 @@ dotenv.config();
 const sessionMap = new Map();
 const alreadyInitialized = new Map();
 const currentlyInitializing = new Set();
+const fs = require('fs');
+const path = require('path');
 
 /* 
 const msg = client.getMessageById(messageId);
@@ -167,26 +169,40 @@ io.on("connection", (socket) => {
 
 // Function to create a new WhatsApp client instance
 // Function to create a new WhatsApp client instance
-function whatsappFactoryFunction(clientId) {
+function whatsappFactoryFunction(customerId) {
+  const folderName = `session-${customerId}`;
+  const folderPath = path.join(__dirname, '.wwebjs_auth', folderName);
+  const lockFile = path.join(folderPath, 'SingletonLock');
+
+  try {
+    if (fs.existsSync(lockFile)) {
+      console.log(`[WHATSAPP] Removing stale SingletonLock for user ${customerId}`);
+      fs.unlinkSync(lockFile);
+    }
+  } catch (err) {
+    console.warn(`[WHATSAPP] Could not remove SingletonLock: ${err.message}`);
+  }
+
   const client = new Client({
     restartOnAuthFail: true,
     qrMaxRetries: 10, // keep it outside of the puppeteer object
     puppeteer: {
       ...(process.env.PUPPETEER_EXECUTABLE_PATH && { executablePath: process.env.PUPPETEER_EXECUTABLE_PATH }),
       headless: true,
-      args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
-        '--disable-gpu'
+        '--disable-gpu',
+        '--disable-extensions',
+        '--disable-features=IsolateOrigins,site-per-process',
+        '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
       ],
     },
     authStrategy: new LocalAuth({
       clientId: clientId,
     }),
     webVersionCache: {
-      type: 'remote',
-      remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html'
+      type: 'none'
   }
   });
   return client;  // Return the client instance, not the Client class

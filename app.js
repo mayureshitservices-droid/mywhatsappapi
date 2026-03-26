@@ -109,6 +109,7 @@ io.on("connection", (socket) => {
     }
 
     // Listeners are now attached inside whatsappFactoryFunction
+    let qrCount = 0;
     client.on('qr', (qr) => {
       QRCode.toDataURL(qr, (err, url) => {
         qrCount++;

@@ -17,9 +17,10 @@ const MessageLog = require('./models/MessageLog');
 const axios = require('axios');
 
 dotenv.config();
-const sessionMap = new Map();
 const alreadyInitialized = new Map();
 const currentlyInitializing = new Set();
+const pendingInitializationMap = new Map();
+const sessionMap = new Map();
 
 // Handle uncaught errors to prevent silent crashes
 process.on('unhandledRejection', (reason, promise) => {
@@ -112,32 +113,42 @@ io.on("connection", (socket) => {
     }
     console.log('Generate QR code');
     const { client, isNew } = whatsappFactoryFunction(customerId);
-    if (!isNew) {
-      console.log(`[WHATSAPP] Session for ${customerId} already active. Not attaching new listeners.`);
-      return socket.emit('ClientIsAlreadyConnected');
-    }
-
-    // Listeners are now attached inside whatsappFactoryFunction
-    let qrCount = 0;
-    client.on('qr', (qr) => {
+    
+    // Listeners for QR and Ready should ONLY be added once per client.
+    // We already moved generic listeners to whatsappFactoryFunction.
+    // socket-specific listeners (like sending QR back to user) need to be handled carefully.
+    
+    const onQr = (qr) => {
       QRCode.toDataURL(qr, (err, url) => {
         qrCount++;
         console.log("inc: " + qrCount);
         socket.emit('qrCodeGenerated', url);
       });
-    });
+    };
 
-    client.once('ready', () => {
+    const onReady = () => {
       socket.emit('ClientIsReady');
-    });
+      client.off('qr', onQr); // Clean up socket listener
+    };
 
-    console.log(`[WHATSAPP] Initializing client for ${customerId}...`);
-    try {
-      await client.initialize();
-      console.log(`[WHATSAPP] client.initialize() called for ${customerId}`);
-    } catch (err) {
-      console.error(`[WHATSAPP] Failed to initialize client for ${customerId}:`, err.message);
-      socket.emit('error', 'Failed to start WhatsApp. Please try again.');
+    client.on('qr', onQr);
+    client.once('ready', onReady);
+
+    // If it's a completely new client, start it. 
+    // If it's already initializing (isNew was false because of our pending check), DO NOT call initialize() again.
+    if (isNew) {
+      console.log(`[WHATSAPP] Initializing NEW client for ${customerId}...`);
+      try {
+        await client.initialize();
+        console.log(`[WHATSAPP] client.initialize() called for ${customerId}`);
+      } catch (err) {
+        console.error(`[WHATSAPP] Failed to initialize client for ${customerId}:`, err.message);
+        socket.emit('error', 'Failed to start WhatsApp. Please try again.');
+        currentlyInitializing.delete(customerId);
+        pendingInitializationMap.delete(customerId);
+      }
+    } else {
+       console.log(`[WHATSAPP] Client for ${customerId} is already starting or ready. Attachment complete.`);
     }
   });
 });
@@ -147,11 +158,24 @@ io.on("connection", (socket) => {
 // Function to create a new WhatsApp client instance
 function whatsappFactoryFunction(rawCustomerId) {
   const customerId = rawCustomerId.toString();
+  
+  // 1. If already in sessionMap, return existing
   if (sessionMap.has(customerId)) {
     return { client: sessionMap.get(customerId).client, isNew: false };
   }
-  const folderName = `session-${customerId}`;
 
+  // 2. If already initializing, return existing client (if we can find it) or block
+  if (currentlyInitializing.has(customerId)) {
+     // We need to return the client that is currently being initialized
+     // to avoid creating a new one. Let's use a temporary map for this.
+     const pendingClient = pendingInitializationMap.get(customerId);
+     if (pendingClient) {
+        return { client: pendingClient, isNew: false };
+     }
+  }
+
+  console.log(`[WHATSAPP] Creating NEW client for ${customerId}`);
+  const folderName = `session-${customerId}`;
   const folderPath = path.join(__dirname, '.wwebjs_auth', folderName);
   const lockFile = path.join(folderPath, 'SingletonLock');
 
@@ -164,7 +188,6 @@ function whatsappFactoryFunction(rawCustomerId) {
     console.warn(`[WHATSAPP] Could not remove SingletonLock: ${err.message}`);
   }
 
-  // Mark as initializing immediately to prevent race conditions
   currentlyInitializing.add(customerId);
 
   const client = new Client({
@@ -200,10 +223,12 @@ function whatsappFactoryFunction(rawCustomerId) {
     }
   });
 
-  // Attach listeners only to the new client
+  // Track this client globally even while it's initializing
+  pendingInitializationMap.set(customerId, client);
+
+  // Attach listeners ONLY ONCE for this specific client instance
   client.on('qr', (qr) => {
     // console.log(`[WHATSAPP] QR generated for ${customerId}`);
-    // This will be handled by the socket if needed
   });
 
   client.on('authenticated', () => {
@@ -212,6 +237,8 @@ function whatsappFactoryFunction(rawCustomerId) {
 
   client.on('auth_failure', msg => {
     console.error(`[WHATSAPP] Authentication failure: ${customerId}. Reason: ${msg}`);
+    currentlyInitializing.delete(customerId);
+    pendingInitializationMap.delete(customerId);
   });
 
   client.on('ready', async () => {
@@ -224,10 +251,12 @@ function whatsappFactoryFunction(rawCustomerId) {
 
         sessionMap.set(customerId, { id: customerId, client: client });
         alreadyInitialized.set(connectedWhatsappNo, 'initialized');
-        currentlyInitializing.delete(customerId);
       }
     } catch (error) {
       console.error(`[WHATSAPP] Error in ready event for ${customerId}:`, error.message);
+    } finally {
+      currentlyInitializing.delete(customerId);
+      pendingInitializationMap.delete(customerId);
     }
   });
 
@@ -235,6 +264,7 @@ function whatsappFactoryFunction(rawCustomerId) {
     console.warn(`[WHATSAPP] Client DISCONNECTED: ${customerId}. Reason: ${reason}`);
     sessionMap.delete(customerId);
     currentlyInitializing.delete(customerId);
+    pendingInitializationMap.delete(customerId);
     await User.updateOne({ _id: customerId }, { $set: { connectedWhatsappNo: '0' } });
 
     setTimeout(() => {

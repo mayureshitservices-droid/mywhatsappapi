@@ -408,7 +408,8 @@ async function initiateAllWhatsappClients() {
     console.error('Error initiating WhatsApp clients:', error.message);
   }
 }
-}
+
+
 
 
 

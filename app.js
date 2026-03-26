@@ -102,58 +102,25 @@ io.on("connection", (socket) => {
       console.log(`Folder '${folderName}' does not exist`);
     }
     console.log('Generate QR code');
-    const client = whatsappFactoryFunction(customerId);
-    let qrCount = 0;
+    const { client, isNew } = whatsappFactoryFunction(customerId);
+    if (!isNew) {
+      console.log(`[WHATSAPP] Session for ${customerId} already active. Not attaching new listeners.`);
+      return socket.emit('ClientIsAlreadyConnected');
+    }
+
+    // Listeners are now attached inside whatsappFactoryFunction
     client.on('qr', (qr) => {
       QRCode.toDataURL(qr, (err, url) => {
-        // console.log(url);
         qrCount++;
         console.log("inc: " + qrCount);
         socket.emit('qrCodeGenerated', url);
       });
     });
 
-    client.on('authenticated', () => {
-      console.log(`[WHATSAPP] Authenticated successfully for client ID: ${customerId}`);
+    client.once('ready', () => {
+       socket.emit('ClientIsReady');
     });
 
-    client.on('auth_failure', msg => {
-      console.error(`[WHATSAPP] Authentication failure for client ID: ${customerId}. Reason: ${msg}`);
-    });
-    client.once('ready', async () => {
-      console.log(`[WHATSAPP] Client "${customerId}" is READY`);
-      // let checkIfAlreadyConnected = (await User.findOne({ _id: customerId }))?.connectedWhatsappNo;
-      try {
-        const user = await User.findById(customerId);
-        
-        if (!user) {
-          console.log('User not found');
-          return; // or handle as needed
-        }
-      
-        let checkIfAlreadyConnected = user.connectedWhatsappNo;
-      
-        if (checkIfAlreadyConnected === '0') {
-          console.log('Client is ready!');
-          socket.emit('ClientIsReady');
-          let connectedWhatsappNo = client.info.wid.user;
-          console.log('connected Whatsapp No is ' + connectedWhatsappNo);
-          await insertClientDetailstoCustDoc(customerId, connectedWhatsappNo);
-          sessionMap.set(customerId, {
-            id: customerId,
-            client: client,
-          });
-          alreadyInitialized.set(connectedWhatsappNo, 'initialized');
-          currentlyInitializing.delete(customerId);
-          // console.log(`[SESSION] Map updated. Current sessions: ${sessionMap.size}`);
-        } else {
-          console.log('Client is already connected');
-          socket.emit('ClientIsAlreadyConnected');
-        }
-      } catch (error) {
-        console.log(error);
-      }
-    });
     console.log(`[WHATSAPP] Initializing client for ${customerId}...`);
     try {
       await client.initialize();
@@ -210,7 +177,50 @@ function whatsappFactoryFunction(customerId) {
       remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html'
     }
   });
-  return client;  // Return the client instance, not the Client class
+
+  // Attach listeners only to the new client
+  client.on('qr', (qr) => {
+    // console.log(`[WHATSAPP] QR generated for ${customerId}`);
+    // This will be handled by the socket if needed
+  });
+
+  client.on('authenticated', () => {
+    console.log(`[WHATSAPP] Authenticated successfully: ${customerId}`);
+  });
+
+  client.on('auth_failure', msg => {
+    console.error(`[WHATSAPP] Authentication failure: ${customerId}. Reason: ${msg}`);
+  });
+
+  client.on('ready', async () => {
+    console.log(`[WHATSAPP] Client READY: ${customerId}`);
+    try {
+      const user = await User.findById(customerId);
+      if (user) {
+        const connectedWhatsappNo = client.info.wid.user;
+        await User.updateOne({ _id: customerId }, { $set: { connectedWhatsappNo: connectedWhatsappNo } });
+        
+        sessionMap.set(customerId, { id: customerId, client: client });
+        alreadyInitialized.set(connectedWhatsappNo, 'initialized');
+        currentlyInitializing.delete(customerId);
+      }
+    } catch (error) {
+      console.error(`[WHATSAPP] Error in ready event for ${customerId}:`, error.message);
+    }
+  });
+
+  client.on('disconnected', async (reason) => {
+    console.warn(`[WHATSAPP] Client DISCONNECTED: ${customerId}. Reason: ${reason}`);
+    sessionMap.delete(customerId);
+    currentlyInitializing.delete(customerId);
+    await User.updateOne({ _id: customerId }, { $set: { connectedWhatsappNo: '0' } });
+    
+    setTimeout(() => {
+        try { client.destroy(); } catch(e) {}
+    }, 5000);
+  });
+
+  return { client, isNew: true };
 }
 
 
@@ -386,141 +396,18 @@ async function initiateAllWhatsappClients() {
         
         currentlyInitializing.add(customerId);
         
-        client.on('authenticated', () => {
-          console.log(`[STARTUP] Authenticated successfully for user: ${user.fullname}`);
-        });
-
-        client.on('ready', async () => {
-          console.log(`[STARTUP] WhatsApp client for user "${user.fullname}" (${user.email}) is READY`);
-          const connectedWhatsappNo = client.info.wid.user;
-          alreadyInitialized.set(connectedWhatsappNo, 'initialized');
-          currentlyInitializing.delete(customerId);
-          
-          sessionMap.set(customerId, {
-            id: customerId,
-            client: client,
-          });
-        });  // CALLING IT AT STARTUP AND AT NEW CONNECTION EVENT BUT DO NOT WANT TO RUN ALL THE INTITIALIZED WHATSAPP TO INITIALIZE AT CONNECTION NEW WHATSAPP CONNECTION EVENT.
-        
-        client.on('qr', async () => {
-          console.log(`[STARTUP] Client "${user.fullname}" NOT connected. QR code required.`);
-        });
-        
-        // webhook code
-        client.on('message', async (msg) => {
-          console.log('one message event is fired');
-
-          try {
-            const { body, fromMe, id, to } = msg;
-
-            // ✅ Get contact safely
-            const contact = await msg.getContact();
-
-            // ✅ BEST PRACTICE: sender identifier
-            const senderNo = contact.number
-              ? contact.number          // real mobile number (if WhatsApp exposes it)
-              : msg.from;               // @lid or @c.us fallback
-
-            const connectedWhatsappNo = to.replace(/@c\.us$/, '');
-
-            const object = {
-              msgBody: body,
-              msgFrom: senderNo,        // 🔥 IMPORTANT: do NOT modify
-              msgFromMe: fromMe,
-              msgId: id.id,
-            };
-
-            console.log(`Message: ${body}`);
-            console.log(`Sender: ${senderNo}`);
-            console.log(`Server WA No: ${connectedWhatsappNo}`);
-
-            const currentDoc = await User.findOne({ connectedWhatsappNo });
-
-            if (currentDoc && currentDoc.webHookUrl !== 'nowebhook') {
-              try {
-                await axios.post(currentDoc.webHookUrl, object, {
-                  headers: { 'Content-Type': 'application/json' }
-                });
-              } catch (error) {
-                console.error('Webhook error:', error.message);
-              }
-            }
-
-          } catch (error) {
-            console.error('Message handler error:', error.message);
-          }
-        });
-
-
-        client.on('message_ack', async (msg, ack) => {
-          // Handle message acknowledgment
-          switch (ack) {
-            case 3:
-              // The message was read
-              const setMsgStatusToSeen = await MessageLog.updateOne({ messageId: msg._data.id._serialized }, { $set: { status: 'Seen' } });
-              console.log('The message was SEEN', msg.body, 'and the id is ' + msg._data.id._serialized);
-              // Update message doc here
-              break;
-            // Add more cases as needed
-            case -1:
-              // Handle ACK_ERROR
-              break;
-            case 0:
-              // Handle ACK_PENDING
-              break;
-            case 1:
-              // Handle ACK_SERVER
-              break;
-            case 2:
-              // Handle ACK_DEVICE
-              // Delivered event
-              console.log('The message was DELIVERED', msg.body, 'and the id is ' + msg._data.id._serialized);
-              const setMsgStatusToDelivered = await MessageLog.updateOne({ messageId: msg._data.id._serialized }, { $set: { status: 'Delivered' } });
-              break;
-            case 4:
-              // Handle ACK_PLAYED
-              break;
-            default:
-              // Handle other cases if necessary
-              break;
-          }
-        });
-
-        client.on('disconnected', async (reason) => {
-          console.warn(`[WHATSAPP] Client "${user.fullname}" DISCONNECTED. Reason: ${reason}`);
-
-          setTimeout(() => {
-            client.destroy();
-          }, 5000);
-
-          await User.updateOne({ _id: user._id }, { $set: { connectedWhatsappNo: '0' } });
-
-          // Only delete the session folder if the session is no longer in the map
-          // This prevents deletion if the client is expected to reconnect or is still considered active by the system
-          if (!sessionMap.has(customerId)) {
-            const folderName = `session-${user._id}`;
-            const folderPath = path.join(__dirname, '.wwebjs_auth', folderName);
-
-            try {
-              await fs.promises.access(folderPath);
-              await fs.promises.rm(folderPath, { recursive: true });
-              console.log(`Folder '${folderName}' deleted successfully`);
-            } catch (error) {
-              console.error(`Error deleting folder '${folderName}':`, error.message);
-            }
-          }
-        });
-
-        client.on('auth_failure', (msg) => {
-          console.error('Authentication failure', msg);
-        });
-
         try {
           await client.initialize();
         } catch (initErr) {
           console.error(`[ERROR] Failed to initialize client for ${user.fullname}:`, initErr.message);
           currentlyInitializing.delete(customerId);
         }
+      }
+    }
+  } catch (error) {
+    console.error('Error initiating WhatsApp clients:', error.message);
+  }
+}
       }
     }
     

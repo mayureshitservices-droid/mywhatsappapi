@@ -118,6 +118,7 @@ io.on("connection", (socket) => {
     // We already moved generic listeners to whatsappFactoryFunction.
     // socket-specific listeners (like sending QR back to user) need to be handled carefully.
     
+    let qrCount = 0;
     const onQr = (qr) => {
       QRCode.toDataURL(qr, (err, url) => {
         qrCount++;

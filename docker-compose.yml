@@ -10,6 +10,12 @@ services:
     volumes:
       - ./.wwebjs_auth:/usr/src/app/.wwebjs_auth
       - ./.wwebjs_cache:/usr/src/app/.wwebjs_cache
+    shm_size: '2gb'
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     environment:
       - PORT=8080
       - NODE_ENV=production

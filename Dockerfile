@@ -2,9 +2,9 @@ FROM node:18-slim
 
 # Install system dependencies for Puppeteer/Chromium
 RUN apt-get update \
-    && apt-get install -y wget gnupg \
+    && apt-get install -y wget gnupg nano \
     && apt-get install -y chromium \
-    && apt-get install -y libatk-bridge2.0-0 libgtk-3-0 libasound2 libnss3 libxss1 libxtst6 libgbm1 \
+    && apt-get install -y libatk-bridge2.0-0 libgtk-3-0 libasound2 libnss3 libxss1 libxtst6 libgbm1 libx11-xcb1 \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 

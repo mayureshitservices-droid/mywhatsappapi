@@ -145,6 +145,7 @@ io.on("connection", (socket) => {
           });
           alreadyInitialized.set(connectedWhatsappNo, 'initialized');
           currentlyInitializing.delete(customerId);
+          // console.log(`[SESSION] Map updated. Current sessions: ${sessionMap.size}`);
         } else {
           console.log('Client is already connected');
           socket.emit('ClientIsAlreadyConnected');
@@ -168,7 +169,11 @@ io.on("connection", (socket) => {
 // Function to create a new WhatsApp client instance
 // Function to create a new WhatsApp client instance
 function whatsappFactoryFunction(customerId) {
+  if (sessionMap.has(customerId)) {
+    return { client: sessionMap.get(customerId).client, isNew: false };
+  }
   const folderName = `session-${customerId}`;
+
   const folderPath = path.join(__dirname, '.wwebjs_auth', folderName);
   const lockFile = path.join(folderPath, 'SingletonLock');
 
@@ -201,8 +206,9 @@ function whatsappFactoryFunction(customerId) {
       clientId: customerId,
     }),
     webVersionCache: {
-      type: 'none'
-  }
+      type: 'remote',
+      remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html'
+    }
   });
   return client;  // Return the client instance, not the Client class
 }
@@ -371,10 +377,14 @@ async function initiateAllWhatsappClients() {
       const customerId = user._id.toString();
 
       if (waNo !== '0' && !alreadyInitialized.has(waNo) && !currentlyInitializing.has(customerId)) {
+        const { client, isNew } = whatsappFactoryFunction(user._id);
+        if (!isNew) {
+           console.log(`[STARTUP] Skipping ${user.fullname}, session already in map.`);
+           continue;
+        }
         console.log(`[STARTUP] Starting initialization for user: ${user.fullname} (${waNo})`);
         
         currentlyInitializing.add(customerId);
-        const client = whatsappFactoryFunction(user._id);
         
         client.on('authenticated', () => {
           console.log(`[STARTUP] Authenticated successfully for user: ${user.fullname}`);
@@ -485,15 +495,19 @@ async function initiateAllWhatsappClients() {
 
           await User.updateOne({ _id: user._id }, { $set: { connectedWhatsappNo: '0' } });
 
-          const folderName = `session-${user._id}`;
-          const folderPath = path.join(__dirname, '.wwebjs_auth', folderName);
+          // Only delete the session folder if the session is no longer in the map
+          // This prevents deletion if the client is expected to reconnect or is still considered active by the system
+          if (!sessionMap.has(customerId)) {
+            const folderName = `session-${user._id}`;
+            const folderPath = path.join(__dirname, '.wwebjs_auth', folderName);
 
-          try {
-            await fs.promises.access(folderPath);
-            await fs.promises.rm(folderPath, { recursive: true });
-            console.log(`Folder '${folderName}' deleted successfully`);
-          } catch (error) {
-            console.error(`Error deleting folder '${folderName}':`, error.message);
+            try {
+              await fs.promises.access(folderPath);
+              await fs.promises.rm(folderPath, { recursive: true });
+              console.log(`Folder '${folderName}' deleted successfully`);
+            } catch (error) {
+              console.error(`Error deleting folder '${folderName}':`, error.message);
+            }
           }
         });
 

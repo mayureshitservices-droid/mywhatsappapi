@@ -164,6 +164,9 @@ function whatsappFactoryFunction(rawCustomerId) {
     console.warn(`[WHATSAPP] Could not remove SingletonLock: ${err.message}`);
   }
 
+  // Mark as initializing immediately to prevent race conditions
+  currentlyInitializing.add(customerId);
+
   const client = new Client({
     restartOnAuthFail: true,
     qrMaxRetries: 10, // keep it outside of the puppeteer object
@@ -183,7 +186,6 @@ function whatsappFactoryFunction(rawCustomerId) {
         '--disable-features=IsolateOrigins,site-per-process',
         '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
       ],
-      userDataDir: path.join(__dirname, '.wwebjs_auth', `session-${customerId}`),
       handleSIGINT: true,
       handleSIGTERM: true,
       handleSIGHUP: true,
@@ -191,7 +193,7 @@ function whatsappFactoryFunction(rawCustomerId) {
     authStrategy: new LocalAuth({
       clientId: customerId,
     }),
-    authTimeoutMs: 60000, // 1 minute
+    authTimeoutMs: 90000, 
     qrMaxRetries: 0,
     webVersionCache: {
       type: 'none'

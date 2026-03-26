@@ -195,7 +195,10 @@ function whatsappFactoryFunction(rawCustomerId) {
     restartOnAuthFail: true,
     qrMaxRetries: 10, // keep it outside of the puppeteer object
     puppeteer: {
-      ...(process.env.PUPPETEER_EXECUTABLE_PATH && { executablePath: process.env.PUPPETEER_EXECUTABLE_PATH }),
+      executablePath: fs.existsSync('/snap/bin/chromium') ? '/snap/bin/chromium' : 
+                      fs.existsSync('/usr/bin/chromium') ? '/usr/bin/chromium' : 
+                      fs.existsSync('/usr/bin/chromium-browser') ? '/usr/bin/chromium-browser' : 
+                      (process.env.PUPPETEER_EXECUTABLE_PATH || undefined),
       headless: true,
       args: [
         '--no-sandbox',
@@ -204,11 +207,11 @@ function whatsappFactoryFunction(rawCustomerId) {
         '--disable-gpu',
         '--disable-extensions',
         '--disable-software-rasterizer',
-        '--disable-setuid-sandbox',
         '--no-first-run',
         '--no-zygote',
         '--disable-features=IsolateOrigins,site-per-process',
-        '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+        '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        `--user-data-dir=/tmp/chromium-data-${customerId}`
       ],
       handleSIGINT: true,
       handleSIGTERM: true,

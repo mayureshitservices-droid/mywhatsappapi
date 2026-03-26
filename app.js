@@ -21,6 +21,15 @@ const sessionMap = new Map();
 const alreadyInitialized = new Map();
 const currentlyInitializing = new Set();
 
+// Handle uncaught errors to prevent silent crashes
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[CRITICAL] Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('[CRITICAL] Uncaught Exception:', err.message, err.stack);
+});
+
 /* 
 const msg = client.getMessageById(messageId);
 msg.delete(true);
@@ -136,7 +145,8 @@ io.on("connection", (socket) => {
 
 // Function to create a new WhatsApp client instance
 // Function to create a new WhatsApp client instance
-function whatsappFactoryFunction(customerId) {
+function whatsappFactoryFunction(rawCustomerId) {
+  const customerId = rawCustomerId.toString();
   if (sessionMap.has(customerId)) {
     return { client: sessionMap.get(customerId).client, isNew: false };
   }
@@ -174,8 +184,7 @@ function whatsappFactoryFunction(customerId) {
       clientId: customerId,
     }),
     webVersionCache: {
-      type: 'remote',
-      remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html'
+      type: 'none'
     }
   });
 
@@ -319,7 +328,13 @@ app.post('/api/sendmessage', async (req, res) => {
               }
               const client = sessionObj.client;
               if (messagetype === 'text') {
-                await client.sendMessage(`${mobileno}@c.us`, message).then(async (response) => {
+                try {
+                  const numberId = await client.getNumberId(mobileno);
+                  const target = numberId ? numberId._serialized : `${mobileno}@c.us`;
+                  
+                  console.log(`[WHATSAPP] Sending to resolved ID: ${target}`);
+                  const response = await client.sendMessage(target, message);
+                  
                   await User.updateOne({ _id: customerId }, { $inc: { AvailableCredits: -1 } });
                   let customerName = user.fullname;
                   let messageId = response._data.id._serialized;
@@ -329,7 +344,10 @@ app.post('/api/sendmessage', async (req, res) => {
                     response: 'Message sent successfully',
                     messageId: messageId
                   });
-                });
+                } catch (sendErr) {
+                  console.error(`[SEND ERROR] Failed to send text message: ${sendErr.message}`);
+                  res.status(500).json({ status: false, response: `WhatsApp Send Error: ${sendErr.message}` });
+                }
               } else if (messagetype === 'file') {
                 let mimeType = req.files.file.mimetype;
                 let file = req.files.file;
@@ -345,7 +363,11 @@ app.post('/api/sendmessage', async (req, res) => {
                 console.log('filepath is ' + filePath);
                 const media = MessageMedia.fromFilePath(filePath);
                 console.log('media is ' + media);
-                await client.sendMessage(`${mobileno}@c.us`, media, { caption: message }).then(async (response) => {
+                try {
+                  const numberId = await client.getNumberId(mobileno);
+                  const target = numberId ? numberId._serialized : `${mobileno}@c.us`;
+                  const response = await client.sendMessage(target, media, { caption: message });
+                  
                   await User.updateOne({ _id: customerId }, { $inc: { AvailableCredits: -1 } });
                   let customerName = user.fullname;
                   let messageId = response._data.id._serialized;
@@ -356,7 +378,11 @@ app.post('/api/sendmessage', async (req, res) => {
                     response: 'Message sent successfully',
                     messageId: messageId
                   })
-                });
+                } catch (sendErr) {
+                  console.error(`[SEND ERROR] Failed to send file message: ${sendErr.message}`);
+                  await manageUploadedFile('delete', file);
+                  res.status(500).json({ status: false, response: `WhatsApp Send Error: ${sendErr.message}` });
+                }
               }
             }
           }

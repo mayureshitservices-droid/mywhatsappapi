@@ -82,7 +82,7 @@ mongoose.connect(process.env.MONGODBURI).then(e => {
 app.get('*', checkUser);
 app.get('/', (req, res) => res.render('home'));
 app.get('/customerpage', requireAuth, (req, res) => res.render('customerpage'));
-app.get('/adminpage', requireAuth, (req, res) =>  res.render('adminpage'));
+app.get('/adminpage', requireAuth, (req, res) => res.render('adminpage'));
 app.use(authRoutes);
 
 
@@ -128,7 +128,7 @@ io.on("connection", (socket) => {
     });
 
     client.once('ready', () => {
-       socket.emit('ClientIsReady');
+      socket.emit('ClientIsReady');
     });
 
     console.log(`[WHATSAPP] Initializing client for ${customerId}...`);
@@ -176,13 +176,23 @@ function whatsappFactoryFunction(rawCustomerId) {
         '--disable-dev-shm-usage',
         '--disable-gpu',
         '--disable-extensions',
+        '--disable-software-rasterizer',
+        '--disable-setuid-sandbox',
+        '--no-first-run',
+        '--no-zygote',
         '--disable-features=IsolateOrigins,site-per-process',
         '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
       ],
+      userDataDir: path.join(__dirname, '.wwebjs_auth', `session-${customerId}`),
+      handleSIGINT: true,
+      handleSIGTERM: true,
+      handleSIGHUP: true,
     },
     authStrategy: new LocalAuth({
       clientId: customerId,
     }),
+    authTimeoutMs: 60000, // 1 minute
+    qrMaxRetries: 0,
     webVersionCache: {
       type: 'none'
     }
@@ -209,7 +219,7 @@ function whatsappFactoryFunction(rawCustomerId) {
       if (user) {
         const connectedWhatsappNo = client.info.wid.user;
         await User.updateOne({ _id: customerId }, { $set: { connectedWhatsappNo: connectedWhatsappNo } });
-        
+
         sessionMap.set(customerId, { id: customerId, client: client });
         alreadyInitialized.set(connectedWhatsappNo, 'initialized');
         currentlyInitializing.delete(customerId);
@@ -224,9 +234,9 @@ function whatsappFactoryFunction(rawCustomerId) {
     sessionMap.delete(customerId);
     currentlyInitializing.delete(customerId);
     await User.updateOne({ _id: customerId }, { $set: { connectedWhatsappNo: '0' } });
-    
+
     setTimeout(() => {
-        try { client.destroy(); } catch(e) {}
+      try { client.destroy(); } catch (e) { }
     }, 5000);
   });
 
@@ -331,10 +341,10 @@ app.post('/api/sendmessage', async (req, res) => {
                 try {
                   const numberId = await client.getNumberId(mobileno);
                   const target = numberId ? numberId._serialized : `${mobileno}@c.us`;
-                  
+
                   console.log(`[WHATSAPP] Sending to resolved ID: ${target}`);
                   const response = await client.sendMessage(target, message);
-                  
+
                   await User.updateOne({ _id: customerId }, { $inc: { AvailableCredits: -1 } });
                   let customerName = user.fullname;
                   let messageId = response._data.id._serialized;
@@ -367,7 +377,7 @@ app.post('/api/sendmessage', async (req, res) => {
                   const numberId = await client.getNumberId(mobileno);
                   const target = numberId ? numberId._serialized : `${mobileno}@c.us`;
                   const response = await client.sendMessage(target, media, { caption: message });
-                  
+
                   await User.updateOne({ _id: customerId }, { $inc: { AvailableCredits: -1 } });
                   let customerName = user.fullname;
                   let messageId = response._data.id._serialized;
@@ -404,7 +414,7 @@ app.post('/api/sendmessage', async (req, res) => {
 
 async function initiateAllWhatsappClients() {
   console.log('Initiating all WhatsApp clients...');
-  
+
   try {
     // get all the whatapp clients
     const users = await User.find({ connectedWhatsappNo: { $ne: '0' } });
@@ -416,13 +426,13 @@ async function initiateAllWhatsappClients() {
       if (waNo !== '0' && !alreadyInitialized.has(waNo) && !currentlyInitializing.has(customerId)) {
         const { client, isNew } = whatsappFactoryFunction(user._id);
         if (!isNew) {
-           console.log(`[STARTUP] Skipping ${user.fullname}, session already in map.`);
-           continue;
+          console.log(`[STARTUP] Skipping ${user.fullname}, session already in map.`);
+          continue;
         }
         console.log(`[STARTUP] Starting initialization for user: ${user.fullname} (${waNo})`);
-        
+
         currentlyInitializing.add(customerId);
-        
+
         try {
           await client.initialize();
         } catch (initErr) {
@@ -449,13 +459,13 @@ app.get('/automation/missedcallalert/*', async (req, res) => {
   const phoneWithoutSymbol = phoneNumber.startsWith('+') ? phoneNumber.substring(1) : phoneNumber;
   console.log(phoneWithoutSymbol);
   try {
-  const id = '65a240c736cdb43ef50854ca';
-  const clientObj = sessionMap.get(id);
-  const client = clientObj.client;
+    const id = '65a240c736cdb43ef50854ca';
+    const clientObj = sessionMap.get(id);
+    const client = clientObj.client;
     const state = await client.getState();
     let message = ''
     message += 'Dear Sir, ' + '\n' + '\n';
-    message += 'Thank you for calling our *Relationship Manager. Shreedhar*' +  '\n' + '\n';
+    message += 'Thank you for calling our *Relationship Manager. Shreedhar*' + '\n' + '\n';
     message += 'We apologize that he missed your call; he must be busy attending to valued customers, just like you.' + '\n' + '\n';
     message += 'Rest assured, our Relationship Manager will call you back within a short period of time.' + '\n' + '\n';
     message += 'Senior Relationship Manager : *Mr. Sudhir Meghache : 91 78878 92244*' + '\n' + '\n';
